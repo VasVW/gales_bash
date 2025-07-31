@@ -7,6 +7,15 @@
   register: user_home
   failed_when: not user_home.stat.exists
 
+- name: Add the fastfetch PPA
+  ansible.builtin.apt_repository:
+    repo: ppa:zhangsongcui3371/fastfetch
+    state: present
+
+- name: Update apt
+  ansible.builtin.apt:
+    update_cache: true
+
 - name: Install QoL Packages
   become: true
   apt:
@@ -20,7 +29,7 @@
       - bat
       - grc
       - btop
-      - neofetch
+      - fastfetch
       - tldr
       # Dev tools
       - build-essential
@@ -54,19 +63,6 @@
     - not bash_it_sh.stat.exists
     - bash_it_rc.rc != 0
 
-- name: Debug who and where
-  shell: |
-   echo "USER: $USER"
-   echo "HOME: $HOME"
-   echo "PWD: $PWD"
-  become_user: "{{ username }}"
-  become: true
-  register: debug_env
-
-- name: Output
-  debug:
-    var: debug_env.stdout_lines
-
 - name: Run Bash-it installer
   shell: "/home/{{ username }}/.bash_it/install.sh --silent"
   become_user: "{{ username }}"
@@ -76,19 +72,6 @@
   when:
     - not bash_it_sh.stat.exists
     - bash_it_rc.rc != 0
-
-- name: Debug who and where
-  shell: |
-   echo "USER: $USER"
-   echo "HOME: $HOME"
-   echo "PWD: $PWD"
-  become_user: "{{ username }}"
-  become: true
-  register: debug_env
-
-- name: Output
-  debug:
-    var: debug_env.stdout_lines
 
 - name: Clone Gales Lambda
   become_user: "{{ username }}"
@@ -104,19 +87,6 @@
     regexp: '^export BASH_IT_THEME='
     line: 'export BASH_IT_THEME="lambda-g"'
 
-- name: Debug who and where
-  shell: |
-   echo "USER: $USER"
-   echo "HOME: $HOME"
-   echo "PWD: $PWD"
-  become_user: "{{ username }}"
-  become: true
-  register: debug_env
-
-- name: Output
-  debug:
-    var: debug_env.stdout_lines
-
 - name: Set aliases
   become_user: "{{ username }}"
   become: true
@@ -129,7 +99,7 @@
       alias findf='fdfind'
       alias ls='exa'
       eval "$(direnv hook bash)"
-      neofetch
+      fastfetch
 
 - name: Create TLDR cache dir
   become_user: "{{ username }}"
@@ -145,7 +115,6 @@
   shell: tldr --update
 
 
-
 - name: Download nvim tar
   get_url:
     url: https://github.com/neovim/neovim/releases/download/v0.11.3/nvim-linux-x86_64.tar.gz
@@ -159,6 +128,7 @@
     remote_src: true
 
 - name: Move Neovim and symlink
+  become: true
   shell: |
     mv "/home/{{ username }}/nvim-linux-x86_64" /usr/local/src/
     ln -sf /usr/local/src/nvim-linux-x86_64/bin/nvim /usr/local/bin/nvim
@@ -175,6 +145,22 @@
     repo: https://github.com/VasVW/nvim.git
     dest: "/home/{{ username }}/.config/nvim"
     depth: 1
+
+- name: Check for fastfetch folder
+  file:
+    path: "/home/{{ username }}/.config/fastfetch"
+    state: directory
+    group: "{{ username }}"
+    owner: "{{ username }}"
+    mode: '0665'
+
+- name: Copy fastfetch config
+  copy:
+    src: fastfetch.jsonc
+    dest: /home/{{ username }}/.config/fastfetch/config.jsonc
+    group: "{{ username }}"
+    owner: "{{ username }}"
+    mode: '0665'
 
 - name: Make sure miniconda folder exists
   file:
@@ -198,19 +184,6 @@
   environment:
     HOME: "/home/{{ username }}"
   shell: bash "/home/{{ username }}/miniconda3/miniconda.sh" -b -u -p "/home/{{ username }}/miniconda3"
-
-- name: Debug who and where
-  shell: |
-   echo "USER: $USER"
-   echo "HOME: $HOME"
-   echo "PWD: $PWD"
-  become_user: "{{ username }}"
-  become: true
-  register: debug_env
-
-- name: Output
-  debug:
-    var: debug_env.stdout_lines
 
 - name: Run conda init
   become_user: "{{ username }}"
