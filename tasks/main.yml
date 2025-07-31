@@ -7,12 +7,30 @@
   register: user_home
   failed_when: not user_home.stat.exists
 
-- name: Add the fastfetch PPA
-  ansible.builtin.apt_repository:
-    repo: ppa:zhangsongcui3371/fastfetch
-    state: present
+- name: Ensure apt keyring directory exists
+  become: true
+  ansible.builtin.file:
+    path: /etc/apt/keyrings
+    state: directory
+    mode: '0755'
 
-- name: Update apt
+- name: Download GPG key for fastfetch
+  become: true
+  ansible.builtin.get_url:
+    url: https://keyserver.ubuntu.com/pks/lookup?op=get&search=0x7E2E5CB4D4865F21
+    dest: /etc/apt/keyrings/fastfetch.asc
+    mode: '0644'
+
+
+- name: Add fastfetch repo using keyring
+  become: true
+  ansible.builtin.apt_repository:
+    repo: "deb [signed-by=/etc/apt/keyrings/fastfetch.asc] http://ppa.launchpad.net/zhangsongcui3371/fastfetch/ubuntu {{ ansible_distribution_release }} main"
+    state: present
+    filename: fastfetch
+
+- name: Update apt cache
+  become: true
   ansible.builtin.apt:
     update_cache: true
 
@@ -152,15 +170,16 @@
     state: directory
     group: "{{ username }}"
     owner: "{{ username }}"
-    mode: '0665'
+    mode: '0755'
 
 - name: Copy fastfetch config
+  become: true
   copy:
-    src: fastfetch.jsonc
+    src: ./roles/gales_bash/files/fastfetch.jsonc
     dest: /home/{{ username }}/.config/fastfetch/config.jsonc
     group: "{{ username }}"
     owner: "{{ username }}"
-    mode: '0665'
+    mode: '0775'
 
 - name: Make sure miniconda folder exists
   file:
@@ -208,6 +227,7 @@
   shell: "/home/{{ username }}/miniconda3/bin/conda create -n pyenv python=3.13 -y"
 
 - name: Fix ownership
+  become: true
   file:
     path: "/home/{{ username }}"
     state: directory
