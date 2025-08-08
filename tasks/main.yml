@@ -234,3 +234,20 @@
     recurse: true
     owner: "{{ username }}"
     group: "{{ username }}"
+
+- name: Add /root/.config to root folder
+  become: true
+  file:
+    path: /root/.config
+    state: directory
+    mode: '0755'
+
+- name: Copy Neovim config from user to root
+  become: true
+  copy:
+    src: "/home/{{ username }}/.config/nvim"
+    dest: "/root/.config/nvim"
+    owner: root
+    group: root
+    mode: '0755'
+    remote_src: true
