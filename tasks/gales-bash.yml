@@ -1,0 +1,252 @@
+---
+- name: Check if user exists
+  stat:
+    path: "/home/{{ username }}"
+  register: user_home
+  failed_when: not user_home.stat.exists
+
+- name: Ensure apt keyring directory exists
+  become: true
+  ansible.builtin.file:
+    path: /etc/apt/keyrings
+    state: directory
+    mode: '0755'
+
+- name: Download GPG key for fastfetch
+  become: true
+  ansible.builtin.get_url:
+    url: https://keyserver.ubuntu.com/pks/lookup?op=get&search=0x7E2E5CB4D4865F21
+    dest: /etc/apt/keyrings/fastfetch.asc
+    mode: '0644'
+
+
+- name: Add fastfetch repo using keyring
+  become: true
+  ansible.builtin.apt_repository:
+    repo: "deb [signed-by=/etc/apt/keyrings/fastfetch.asc] http://ppa.launchpad.net/zhangsongcui3371/fastfetch/ubuntu {{ ansible_distribution_release }} main"
+    state: present
+    filename: fastfetch
+
+- name: Update apt cache
+  become: true
+  ansible.builtin.apt:
+    update_cache: true
+
+- name: Install QoL Packages
+  become: true
+  apt:
+    name:
+      # THis is for better navigation and searching
+      - eza
+      - fzf
+      - ripgrep
+      - fd-find
+      # For better output and visuals
+      - bat
+      - grc
+      - btop
+      - fastfetch
+      - tldr
+      # Dev tools
+      - build-essential
+      - python3
+      - nodejs
+      - npm
+      - direnv
+      - git
+      # Auto-complete
+      - bash-completion
+
+- name: Check if Bash-it is already installed
+  stat:
+    path: "/home/{{ username }}/.bash_it/bash_it.sh"
+  register: bash_it_sh
+
+- name: Check if .bashrc sources Bash-it
+  shell: grep -q 'bash_it.sh' "/home/{{ username }}/.bashrc"
+  register: bash_it_rc
+  failed_when: false
+  changed_when: false
+
+- name: Clone Bash-it
+  git:
+    repo: https://github.com/Bash-it/bash-it.git
+    dest: "/home/{{ username }}/.bash_it"
+    depth: 1
+  become_user: "{{ username }}"
+  become: true
+  when:
+    - not bash_it_sh.stat.exists
+    - bash_it_rc.rc != 0
+
+- name: Run Bash-it installer
+  shell: "/home/{{ username }}/.bash_it/install.sh --silent"
+  become_user: "{{ username }}"
+  become: true
+  environment:
+    HOME: "/home/{{ username }}"
+  when:
+    - not bash_it_sh.stat.exists
+    - bash_it_rc.rc != 0
+
+- name: Clone Gales Lambda
+  become_user: "{{ username }}"
+  become: true
+  git:
+    repo: https://github.com/VasVW/lambda-g.git
+    dest: "/home/{{ username }}/.bash_it/themes/lambda-g"
+    depth: 1
+
+- name: Set Gales theme to Bash-it
+  lineinfile:
+    path: "/home/{{ username }}/.bashrc"
+    regexp: '^export BASH_IT_THEME='
+    line: 'export BASH_IT_THEME="lambda-g"'
+
+- name: Set aliases
+  become_user: "{{ username }}"
+  become: true
+  blockinfile:
+    path: "/home/{{ username }}/.bashrc"
+    marker: "# {Mark} Ansible QoL block "
+    block: |
+      alias ping='grc ping'
+      alias cat='batcat --paging=never --style=plain,header'
+      alias findf='fdfind'
+      alias ls='exa'
+      eval "$(direnv hook bash)"
+      fastfetch
+
+- name: Create TLDR cache dir
+  become_user: "{{ username }}"
+  become: true
+  file:
+    path: "/home/{{ username }}/.local/share/tldr"
+    state: directory
+    mode: '0755'
+
+- name: Update TLDR
+  become_user: "{{ username }}"
+  become: true
+  shell: tldr --update
+
+
+- name: Download nvim tar
+  get_url:
+    url: https://github.com/neovim/neovim/releases/download/v0.11.3/nvim-linux-x86_64.tar.gz
+    dest: "/home/{{ username }}/nvim.tar.gz"
+
+- name: Extract Neovim
+  become_user: "{{ username }}"
+  unarchive:
+    src: "/home/{{ username }}/nvim.tar.gz"
+    dest: "/home/{{ username }}"
+    remote_src: true
+
+- name: Move Neovim and symlink
+  become: true
+  shell: |
+    mv "/home/{{ username }}/nvim-linux-x86_64" /usr/local/src/
+    ln -sf /usr/local/src/nvim-linux-x86_64/bin/nvim /usr/local/bin/nvim
+
+- name: Remove Neovim tarball
+  file:
+    path: "/home/{{ username }}/nvim.tar.gz"
+    state: absent
+
+- name: Clone gales Neovim config
+  become_user: "{{ username }}"
+  become: true
+  git:
+    repo: https://github.com/VasVW/nvim.git
+    dest: "/home/{{ username }}/.config/nvim"
+    depth: 1
+
+- name: Check for fastfetch folder
+  file:
+    path: "/home/{{ username }}/.config/fastfetch"
+    state: directory
+    group: "{{ username }}"
+    owner: "{{ username }}"
+    mode: '0755'
+
+- name: Copy fastfetch config
+  become: true
+  copy:
+    src: ./roles/gales_bash/files/fastfetch.jsonc
+    dest: /home/{{ username }}/.config/fastfetch/config.jsonc
+    group: "{{ username }}"
+    owner: "{{ username }}"
+    mode: '0775'
+
+- name: Make sure miniconda folder exists
+  file:
+    path: "/home/{{ username }}/miniconda3"
+    state: directory
+    owner: "{{ username }}"
+    group: "{{ username }}"
+    mode: '0755'
+
+- name: Download Miniconda
+  become_user: "{{ username }}"
+  become: true
+  get_url:
+    url: https://repo.anaconda.com/miniconda/Miniconda3-latest-Linux-x86_64.sh
+    dest: "/home/{{ username }}/miniconda3/miniconda.sh"
+    mode: '0755'
+
+- name: Install Miniconda
+  become_user: "{{ username }}"
+  become: true
+  environment:
+    HOME: "/home/{{ username }}"
+  shell: bash "/home/{{ username }}/miniconda3/miniconda.sh" -b -u -p "/home/{{ username }}/miniconda3"
+
+- name: Run conda init
+  become_user: "{{ username }}"
+  become: true
+  shell: |
+    "/home/{{ username }}/miniconda3/bin/conda" init --all
+    "/home/{{ username }}/miniconda3/bin/conda" config --set auto_activate_base false
+
+- name: Accept Conda ToS for pkgs/main
+  become_user: "{{ username }}"
+  become: true
+  shell: "{{ user_home.stat.path }}/miniconda3/bin/conda tos accept --override-channels --channel https://repo.anaconda.com/pkgs/main"
+
+- name: Accept Conda ToS for pkgs/r
+  become_user: "{{ username }}"
+  become: true
+  shell: "{{ user_home.stat.path }}/miniconda3/bin/conda tos accept --override-channels --channel https://repo.anaconda.com/pkgs/r"
+
+- name: Create conda env
+  become_user: "{{ username }}"
+  become: true
+  shell: "/home/{{ username }}/miniconda3/bin/conda create -n pyenv python=3.13 -y"
+
+- name: Fix ownership
+  become: true
+  file:
+    path: "/home/{{ username }}"
+    state: directory
+    recurse: true
+    owner: "{{ username }}"
+    group: "{{ username }}"
+
+- name: Add /root/.config to root folder
+  become: true
+  file:
+    path: /root/.config
+    state: directory
+    mode: '0755'
+
+- name: Copy Neovim config from user to root
+  become: true
+  copy:
+    src: "/home/{{ username }}/.config/nvim"
+    dest: "/root/.config/nvim"
+    owner: root
+    group: root
+    mode: '0755'
+    remote_src: true
+...

@@ -1,0 +1,248 @@
+---
+- name: Check if user exists
+  stat:
+    path: "/home/{{ username }}"
+  register: user_home
+  failed_when: not user_home.stat.exists
+
+- name: Ensure apt keyring directory exists
+  become: true
+  ansible.builtin.file:
+    path: /etc/apt/keyrings
+    state: directory
+    mode: '0755'
+
+- name: Download GPG key for fastfetch
+  become: true
+  ansible.builtin.get_url:
+    url: https://keyserver.ubuntu.com/pks/lookup?op=get&search=0x7E2E5CB4D4865F21
+    dest: /etc/apt/keyrings/fastfetch.asc
+    mode: '0644'
+
+- name: Add fastfetch repo using keyring
+  become: true
+  ansible.builtin.apt_repository:
+    repo: "deb [signed-by=/etc/apt/keyrings/fastfetch.asc] http://ppa.launchpad.net/zhangsongcui3371/fastfetch/ubuntu {{ ansible_distribution_release }} main"
+    state: present
+    filename: fastfetch
+
+- name: Update apt cache
+  become: true
+  ansible.builtin.apt:
+    update_cache: true
+
+- name: Install QoL Packages
+  become: true
+  apt:
+    name:
+      # This is for better navigation and searching
+      - eza
+      - ripgrep
+      # For better output and visuals
+      - bat
+      - grc
+      - btop
+      - fastfetch
+      - tldr
+      # Dev tools
+      - build-essential
+      - python3
+      - nodejs
+      - npm
+      - direnv
+      - git
+      # Zsh and completion
+      - zsh
+
+- name: Check if Oh My Zsh is already installed
+  stat:
+    path: "/home/{{ username }}/.oh-my-zsh/oh-my-zsh.sh"
+  register: oh_my_zsh_sh
+
+- name: Check if .zshrc sources Oh My Zsh
+  shell: grep -q 'oh-my-zsh.sh' "/home/{{ username }}/.zshrc"
+  register: oh_my_zsh_rc
+  failed_when: false
+  changed_when: false
+
+- name: Clone Oh My Zsh
+  git:
+    repo: https://github.com/ohmyzsh/ohmyzsh.git
+    dest: "/home/{{ username }}/.oh-my-zsh"
+    depth: 1
+  become_user: "{{ username }}"
+  become: true
+  when:
+    - not oh_my_zsh_sh.stat.exists
+    - oh_my_zsh_rc.rc != 0
+
+- name: Ensure .zshrc exists
+  become_user: "{{ username }}"
+  become: true
+  file:
+    path: "/home/{{ username }}/.zshrc"
+    state: touch
+    mode: '0644'
+  when:
+    - not oh_my_zsh_sh.stat.exists
+    - oh_my_zsh_rc.rc != 0
+
+
+
+- name: Clone Gales Lambda repository for themes
+  become_user: "{{ username }}"
+  become: true
+  git:
+    repo: https://github.com/VasVW/lambda-g.git
+    dest: "/home/{{ username }}/.oh-my-zsh/custom/themes/lambda-g"
+    depth: 1
+
+- name: Link Gales Zsh theme
+  become_user: "{{ username }}"
+  become: true
+  file:
+    src: "/home/{{ username }}/.oh-my-zsh/custom/themes/lambda-g/gales-zsh.zsh-theme"
+    dest: "/home/{{ username }}/.oh-my-zsh/custom/themes/gales-zsh.zsh-theme"
+    state: link
+
+- name: Clone template
+  become_user: "{{ username }}"
+  become: true
+  template:
+    src: zshrc
+    dest: /home/{{ username }}/.zshrc
+  when:
+    - not oh_my_zsh_sh.stat.exists
+    - oh_my_zsh_rc.rc != 0
+
+- name: Create TLDR cache dir
+  become_user: "{{ username }}"
+  become: true
+  file:
+    path: "/home/{{ username }}/.local/share/tldr"
+    state: directory
+    mode: '0755'
+
+- name: Update TLDR
+  become_user: "{{ username }}"
+  become: true
+  shell: tldr --update
+
+- name: Download nvim tar
+  get_url:
+    url: https://github.com/neovim/neovim/releases/download/v0.11.3/nvim-linux-x86_64.tar.gz
+    dest: "/home/{{ username }}/nvim.tar.gz"
+
+- name: Extract Neovim
+  become_user: "{{ username }}"
+  unarchive:
+    src: "/home/{{ username }}/nvim.tar.gz"
+    dest: "/home/{{ username }}"
+    remote_src: true
+
+- name: Move Neovim and symlink
+  become: true
+  shell: |
+    mv "/home/{{ username }}/nvim-linux-x86_64" /usr/local/src/
+    ln -sf /usr/local/src/nvim-linux-x86_64/bin/nvim /usr/local/bin/nvim
+
+- name: Remove Neovim tarball
+  file:
+    path: "/home/{{ username }}/nvim.tar.gz"
+    state: absent
+
+- name: Clone Gales Neovim config
+  become_user: "{{ username }}"
+  become: true
+  git:
+    repo: https://github.com/VasVW/nvim.git
+    dest: "/home/{{ username }}/.config/nvim"
+    depth: 1
+
+- name: Check for fastfetch folder
+  file:
+    path: "/home/{{ username }}/.config/fastfetch"
+    state: directory
+    group: "{{ username }}"
+    owner: "{{ username }}"
+    mode: '0755'
+
+- name: Copy fastfetch config
+  become: true
+  copy:
+    src: ./roles/gales_zsh/files/fastfetch.jsonc
+    dest: /home/{{ username }}/.config/fastfetch/config.jsonc
+    group: "{{ username }}"
+    owner: "{{ username }}"
+    mode: '0775'
+
+- name: Make sure miniconda folder exists
+  file:
+    path: "/home/{{ username }}/miniconda3"
+    state: directory
+    owner: "{{ username }}"
+    group: "{{ username }}"
+    mode: '0755'
+
+- name: Download Miniconda
+  become_user: "{{ username }}"
+  become: true
+  get_url:
+    url: https://repo.anaconda.com/miniconda/Miniconda3-latest-Linux-x86_64.sh
+    dest: "/home/{{ username }}/miniconda3/miniconda.sh"
+    mode: '0755'
+
+- name: Install Miniconda
+  become_user: "{{ username }}"
+  become: true
+  environment:
+    HOME: "/home/{{ username }}"
+  shell: bash "/home/{{ username }}/miniconda3/miniconda.sh" -b -u -p "/home/{{ username }}/miniconda3"
+
+- name: Run conda init
+  become_user: "{{ username }}"
+  become: true
+  shell: |
+    "/home/{{ username }}/miniconda3/bin/conda" init zsh
+    "/home/{{ username }}/miniconda3/bin/conda" config --set auto_activate_base false
+
+- name: Accept Conda ToS for pkgs/main
+  become_user: "{{ username }}"
+  become: true
+  shell: "{{ user_home.stat.path }}/miniconda3/bin/conda tos accept --override-channels --channel https://repo.anaconda.com/pkgs/main"
+
+- name: Accept Conda ToS for pkgs/r
+  become_user: "{{ username }}"
+  become: true
+  shell: "{{ user_home.stat.path }}/miniconda3/bin/conda tos accept --override-channels --channel https://repo.anaconda.com/pkgs/r"
+
+- name: Create conda env
+  become_user: "{{ username }}"
+  become: true
+  shell: "/home/{{ username }}/miniconda3/bin/conda create -n pyenv python=3.13 -y"
+
+- name: Fix ownership
+  become: true
+  file:
+    path: "/home/{{ username }}"
+    state: directory
+    recurse: true
+    owner: "{{ username }}"
+    group: "{{ username }}"
+
+- name: Add /root/.config to root folder
+  become: true
+  file:
+    path: /root/.config
+    state: directory
+    mode: '0755'
+
+- name: Copy Neovim config from user to root
+  become: true
+  copy:
+    src: "/home/{{ username }}/.config/nvim"
+    dest: "/root/.config/nvim"
+    owner: root
+    group: root
+    mode: '0755'
+    remote_src: true
