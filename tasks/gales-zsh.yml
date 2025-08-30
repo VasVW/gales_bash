@@ -38,6 +38,9 @@
       # This is for better navigation and searching
       - eza
       - ripgrep
+      - zip
+      - unzip
+      - python3-venv
       # For better output and visuals
       - bat
       - grc
@@ -170,7 +173,7 @@
 - name: Copy fastfetch config
   become: true
   copy:
-    src: ./roles/gales_zsh/files/fastfetch.jsonc
+    src: fastfetch.jsonc 
     dest: /home/{{ username }}/.config/fastfetch/config.jsonc
     group: "{{ username }}"
     owner: "{{ username }}"
@@ -246,3 +249,9 @@
     group: root
     mode: '0755'
     remote_src: true
+
+- name: Set ZSH as default shell for user
+  user:
+    name: "{{ username }}"
+    shell: /bin/zsh
+  become: true

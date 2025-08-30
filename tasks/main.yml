@@ -1,7 +1,7 @@
 - name: Bash QoL
-  import_task: gales-bash.yml
+  import_tasks: gales-bash.yml
   when: cli_type == "bash"
 
 - name: ZSH QoL
-  import_task: gales-zsh.yml
+  import_tasks: gales-zsh.yml
   when: cli_type == "zsh"

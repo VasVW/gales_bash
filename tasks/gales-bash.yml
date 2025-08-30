@@ -41,6 +41,9 @@
       - fzf
       - ripgrep
       - fd-find
+      - zip
+      - unzip
+      - python3-venv
       # For better output and visuals
       - bat
       - grc
