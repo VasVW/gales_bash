@@ -255,3 +255,10 @@
     name: "{{ username }}"
     shell: /bin/zsh
   become: true
+
+- name: Add syntax highlighting
+  become: true
+  git:
+    repo: https://github.com/zsh-users/zsh-syntax-highlighting.git
+    dest: "/home/{{ username }}/.oh-my-zsh/custom/plugins/zsh-syntax-highlighting"
+    depth: 1
