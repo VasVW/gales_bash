@@ -1,0 +1,10 @@
+---
+- name: ZSH QoL (Debian Family)
+  import_tasks: gales-zsh.yml
+  when:
+    - ansible_distribution == "Ubuntu"
+
+- name: ZSH QoL (Fedora)
+  import_tasks: gales-zsh-fedora.yml
+  when:
+    - ansible_distribution == "Fedora"

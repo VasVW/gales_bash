@@ -1,0 +1,23 @@
+export PATH="$HOME/.local/bin:/usr/local/bin:$PATH"
+export ZSH="$HOME/.oh-my-zsh"
+
+ZSH_THEME="gales-zsh"
+HIST_STAMPS="dd/mm/yyyy"
+
+plugins=(
+  git
+  zsh-autosuggestions
+  zsh-syntax-highlighting
+)
+
+autoload -Uz compinit
+compinit
+
+source $ZSH/oh-my-zsh.sh
+
+eval "$(direnv hook zsh)"
+
+alias ping='grc ping'
+alias cat='bat --paging=never --style=plain,header'
+alias ls='eza'
+alias p='python'

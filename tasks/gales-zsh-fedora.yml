@@ -1,0 +1,304 @@
+---
+- name: Check if user exists
+  ansible.builtin.stat:
+    path: "/home/{{ username }}"
+  register: user_home
+  failed_when: not user_home.stat.exists
+
+- name: Enable COPR repository for fastfetch
+  become: true
+  ansible.builtin.command: dnf copr enable -y atim/fastfetch
+  changed_when: false
+  ignore_errors: true
+
+- name: Install QoL Packages
+  become: true
+  ansible.builtin.dnf:
+    name:
+      # This is for better navigation and searching
+      - ripgrep
+      - zip
+      - unzip
+      - bzip2 # Required for extracting Micromamba
+      - tar
+      - python3-devel # For venv and other dev dependencies
+      # For better output and visuals
+      - bat
+      - grc
+      - btop
+      - fastfetch
+      - tealdeer # Rust version of tldr
+      # Dev tools group and specifics
+      - "@development-tools"
+      - nodejs
+      - npm
+      - direnv
+      - git
+      # Zsh and utils
+      - zsh
+      - util-linux-user
+      - perl-Time-HiRes
+    state: present
+
+- name: Check if eza is already installed
+  ansible.builtin.stat:
+    path: /usr/local/bin/eza
+  register: eza_installed
+
+- name: Install eza block
+  when: not eza_installed.stat.exists
+  block:
+    - name: Download latest eza binary
+      become: true
+      ansible.builtin.get_url:
+        url: https://github.com/eza-community/eza/releases/latest/download/eza_x86_64-unknown-linux-gnu.tar.gz
+        dest: "/tmp/eza.tar.gz"
+        mode: "0644"
+
+    - name: Extract eza binary
+      become: true
+      ansible.builtin.unarchive:
+        src: "/tmp/eza.tar.gz"
+        dest: "/tmp/"
+        remote_src: true
+
+    - name: Install eza to /usr/local/bin
+      become: true
+      ansible.builtin.copy:
+        src: "/tmp/eza"
+        dest: "/usr/local/bin/eza"
+        owner: root
+        group: root
+        mode: "0755"
+        remote_src: true
+
+    - name: Clean up eza temporary files
+      become: true
+      ansible.builtin.file:
+        path: "{{ item }}"
+        state: absent
+      loop:
+        - "/tmp/eza.tar.gz"
+        - "/tmp/eza"
+
+- name: Check if Oh My Zsh is already installed
+  become: true
+  ansible.builtin.stat:
+    path: "/home/{{ username }}/.oh-my-zsh/oh-my-zsh.sh"
+  register: oh_my_zsh_sh
+
+- name: Check if .zshrc sources Oh My Zsh
+  become: true
+  ansible.builtin.shell: grep -q 'oh-my-zsh.sh' "/home/{{ username }}/.zshrc"
+  register: oh_my_zsh_rc
+  failed_when: false
+  changed_when: false
+
+- name: Clone Oh My Zsh
+  become: true
+  become_user: "{{ username }}"
+  ansible.builtin.git:
+    repo: https://github.com/ohmyzsh/ohmyzsh.git
+    dest: "/home/{{ username }}/.oh-my-zsh"
+    depth: 1
+  when:
+    - not oh_my_zsh_sh.stat.exists
+    - oh_my_zsh_rc.rc != 0
+
+- name: Ensure .zshrc exists
+  become: true
+  become_user: "{{ username }}"
+  ansible.builtin.file:
+    path: "/home/{{ username }}/.zshrc"
+    state: touch
+    mode: "0644"
+  when:
+    - not oh_my_zsh_sh.stat.exists
+    - oh_my_zsh_rc.rc != 0
+
+- name: Clone Gales Lambda repository for themes
+  become: true
+  become_user: "{{ username }}"
+  ansible.builtin.git:
+    repo: https://github.com/VasVW/lambda-g.git
+    dest: "/home/{{ username }}/.oh-my-zsh/custom/themes/lambda-g"
+    depth: 1
+
+- name: Link Gales Zsh theme
+  become: true
+  become_user: "{{ username }}"
+  ansible.builtin.file:
+    src: "/home/{{ username }}/.oh-my-zsh/custom/themes/lambda-g/gales-zsh.zsh-theme"
+    dest: "/home/{{ username }}/.oh-my-zsh/custom/themes/gales-zsh.zsh-theme"
+    state: link
+
+- name: Clone template
+  become: true
+  become_user: "{{ username }}"
+  ansible.builtin.template:
+    src: zshrc
+    dest: "/home/{{ username }}/.zshrc"
+  when:
+    - not oh_my_zsh_sh.stat.exists
+    - oh_my_zsh_rc.rc != 0
+
+- name: Create TLDR cache dir
+  become: true
+  become_user: "{{ username }}"
+  ansible.builtin.file:
+    path: "/home/{{ username }}/.local/share/tldr"
+    state: directory
+    mode: "0755"
+
+- name: Update TLDR
+  become: true
+  become_user: "{{ username }}"
+  environment:
+    TEALDEER_CACHE_DIR: "/home/{{ username }}/.local/share/tldr"
+  ansible.builtin.shell: tldr --update
+  register: tldr_update
+  changed_when: tldr_update.rc == 0
+  failed_when:
+    - tldr_update.rc != 0
+    - "'Could not find EOCD' not in tldr_update.stderr"
+
+- name: Check current Neovim version
+  ansible.builtin.shell: >
+    command -v nvim >/dev/null 2>&1 && nvim --version | head -n1 | awk '{print $2}' | sed 's/v//' || echo "0.0.0"
+  register: nvim_version
+  changed_when: false
+
+- name: Install or Update Neovim block
+  when: nvim_version.stdout is version('0.11', '<')
+  block:
+    - name: Download nvim tar
+      become: true
+      ansible.builtin.get_url:
+        url: https://github.com/neovim/neovim/releases/download/v0.11.4/nvim-linux-x86_64.tar.gz
+        dest: "/tmp/nvim.tar.gz"
+        mode: "0644"
+
+    - name: Extract Neovim
+      become: true
+      ansible.builtin.unarchive:
+        src: "/tmp/nvim.tar.gz"
+        dest: "/tmp/"
+        remote_src: true
+
+    - name: Move Neovim and symlink
+      become: true
+      ansible.builtin.shell: |
+        rm -rf /usr/local/src/nvim-linux64
+        mv /tmp/nvim-linux* /usr/local/src/nvim-linux64
+        ln -sf /usr/local/src/nvim-linux64/bin/nvim /usr/local/bin/nvim
+
+    - name: Remove Neovim tarball
+      become: true
+      ansible.builtin.file:
+        path: "/tmp/nvim.tar.gz"
+        state: absent
+
+- name: Clone Gales Neovim config
+  become: true
+  become_user: "{{ username }}"
+  ansible.builtin.git:
+    repo: https://github.com/VasVW/nvim.git
+    dest: "/home/{{ username }}/.config/nvim"
+    depth: 1
+    force: true
+
+- name: Ensure fastfetch config directory exists
+  become: true
+  become_user: "{{ username }}"
+  ansible.builtin.file:
+    path: "/home/{{ username }}/.config/fastfetch"
+    state: directory
+    group: "{{ username }}"
+    owner: "{{ username }}"
+    mode: "0755"
+
+- name: Copy fastfetch config
+  become: true
+  ansible.builtin.copy:
+    src: fastfetch.jsonc
+    dest: "/home/{{ username }}/.config/fastfetch/config.jsonc"
+    group: "{{ username }}"
+    owner: "{{ username }}"
+    mode: "0644"
+
+- name: Ensure .local/bin directory exists for Micromamba
+  become: true
+  become_user: "{{ username }}"
+  ansible.builtin.file:
+    path: "/home/{{ username }}/.local/bin"
+    state: directory
+    mode: "0755"
+
+- name: Download and extract Micromamba binary
+  become: true
+  become_user: "{{ username }}"
+  ansible.builtin.unarchive:
+    src: "https://micro.mamba.pm/api/micromamba/linux-64/latest"
+    dest: "/home/{{ username }}/.local/bin"
+    remote_src: true
+    extra_opts:
+      - "--strip-components=1"
+      - "bin/micromamba"
+    creates: "/home/{{ username }}/.local/bin/micromamba"
+
+- name: Initialize Micromamba for Zsh
+  become: true
+  become_user: "{{ username }}"
+  ansible.builtin.shell: "/home/{{ username }}/.local/bin/micromamba shell init -s zsh -r /home/{{ username }}/micromamba"
+  changed_when: false
+
+- name: Configure Micromamba to not auto-activate base
+  become: true
+  become_user: "{{ username }}"
+  ansible.builtin.shell: "/home/{{ username }}/.local/bin/micromamba config set auto_activate_base false"
+  changed_when: false
+
+- name: Create pyenv micromamba environment
+  become: true
+  become_user: "{{ username }}"
+  ansible.builtin.command: "/home/{{ username }}/.local/bin/micromamba create -n pyenv python=3.13 -c conda-forge -y"
+  args:
+    creates: "/home/{{ username }}/micromamba/envs/pyenv"
+
+- name: Add /root/.config to root folder
+  become: true
+  ansible.builtin.file:
+    path: /root/.config
+    state: directory
+    mode: "0755"
+
+- name: Copy Neovim config from user to root
+  become: true
+  ansible.builtin.copy:
+    src: "/home/{{ username }}/.config/nvim/"
+    dest: "/root/.config/nvim/"
+    owner: root
+    group: root
+    remote_src: true
+
+- name: Set ZSH as default shell for user
+  become: true
+  ansible.builtin.user:
+    name: "{{ username }}"
+    shell: /bin/zsh
+
+- name: Add ZSH syntax highlighting plugin
+  become: true
+  become_user: "{{ username }}"
+  ansible.builtin.git:
+    repo: https://github.com/zsh-users/zsh-syntax-highlighting.git
+    dest: "/home/{{ username }}/.oh-my-zsh/custom/plugins/zsh-syntax-highlighting"
+    depth: 1
+
+- name: Add ZSH autosuggestions plugin
+  become: true
+  become_user: "{{ username }}"
+  ansible.builtin.git:
+    repo: https://github.com/zsh-users/zsh-autosuggestions.git
+    dest: "/home/{{ username }}/.oh-my-zsh/custom/plugins/zsh-autosuggestions"
+    depth: 1
